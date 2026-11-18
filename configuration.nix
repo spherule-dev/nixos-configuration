@@ -24,6 +24,9 @@
   };
   
   hardware.amdgpu.opencl.enable = true;
+  nixpkgs.config.rocmSupport = true;
+
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
 
   networking.hostName = "masamune"; # Define your hostname.
 
@@ -54,6 +57,11 @@
 
   # Enable the X11 windowing system.
   services.xserver.enable = true;
+  
+  services.xserver.displayManager.setupCommands = ''
+    ${pkgs.xorg.xrandr}/bin/xrandr --output DP-2 --mode 1920x1080 --rate 240
+  '';
+
   services.xserver.displayManager.lightdm = {
     enable = true;
 
@@ -92,6 +100,7 @@
   users.users.sphere = {
     isNormalUser = true;
     extraGroups = [ "wheel" "networkmanager" "video" "render" "audio" "rtkit" "pipewire" ]; # Enable ‘sudo’ for the user.
+    hashedPasswordFile = "/etc/passwdhash";
     packages = with pkgs; [
       tree
     ];
@@ -106,11 +115,14 @@
   environment.systemPackages = with pkgs; [
     vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
     wget
+    curl
+    unzip
     alacritty
     pkgs.windowmaker
     pkgs.vivaldi
     pkgs.vivaldi-ffmpeg-codecs
     pkgs.ffmpeg
+    pkgs.neovim
     pkgs.kdePackages.kdenlive
     pkgs.pavucontrol
     pkgs.bluetuith
@@ -132,7 +144,20 @@
     networkmanagerapplet
     pasystray
     windowmaker.passthru.dockapps.wmsystemtray
+
+    rocmPackages.clr.icd
+    rocmPackages.rocminfo
+    rocmPackages.rocm-smi
+    clinfo
+
+    distrobox
   ];
+
+  environment.variables = {
+    # Restrict ROCm and HIP to Device 0 (RX 9060 XT) and hide the iGPU
+    ROCR_VISIBLE_DEVICES = "0";
+    HIP_VISIBLE_DEVICES = "0";
+  };
 
   fonts = {
     fontDir.enable = true;
@@ -142,9 +167,43 @@
     ];
   };
 
+  systemd.tmpfiles.rules = 
+    let
+      rocmEnv = pkgs.symlinkJoin {
+        name = "rocm-combined";
+        paths = with pkgs.rocmPackages; [
+          rocblas
+          hipblas
+          clr
+        ];
+      };
+    in [
+      "L+    /opt/rocm   -    -    -     -    ${rocmEnv}"
+    ];
+
+
+  programs.nix-ld = {
+    enable = true;
+    libraries = with pkgs; [
+      stdenv.cc.cc.lib
+      zlib
+      zstd
+      libGL
+      glib
+      rocmPackages.clr
+      rocmPackages.rocblas
+      rocmPackages.hipblas
+      rocmPackages.miopen
+    ];
+  };
 
   nixpkgs.config.allowUnfree = true;
   programs.steam.enable = true;
+
+  virtualisation.podman = {
+    enable = true;
+    dockerCompat = true;
+  };
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
